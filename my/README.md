@@ -115,6 +115,19 @@ uv run scripts/export.py Mjlab-Velocity-Flat-MicroDuck \
   --onnx-file duck_walk.onnx
 ```
 
+## 進捗ログ（新しいものが上）
+
+### 2026-10-09（金）
+- GitHubに課題用アカウントを作成し、公式リポジトリをforkして公開。README（本ファイル）を作成。
+- 日本語の指示 → LLM → 台本 → 歩行、を一括で行う `my/llm_walk.py` が動作。ゴール誤差は約8cmで、前進中に向きが左へずれることを発見。
+- 台本どおりに歩かせる `my/walk_script.py` を作成し、速さを実測（指令0.2 m/s → 実測 約0.08 m/s）。
+- 約8時間（14,750 iteration）で学習を終了し、歩行ポリシー `duck_walk.onnx` を書き出し。転倒は1回あたり約25体 → 約0.4体に減少。
+
+### 2026-10-08（木）
+- テーマを「言葉で歩くMicroduck」（LLM＋強化学習の歩行ポリシー）に決定。
+- 共用PCの環境を壊さないよう、作業専用のユーザーを作成して環境を構築（uv）。
+- 短い試運転でGPU学習の動作を確認し、深夜に本番の学習（4096並列環境）を開始。
+
 ## 謝辞・ライセンス
 
 - 元のリポジトリ：[pollen-robotics/microduck_rl](https://github.com/pollen-robotics/microduck_rl)（Apache License 2.0）
