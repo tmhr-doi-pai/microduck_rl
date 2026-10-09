@@ -1,3 +1,5 @@
+> **このforkは「Physical AI応用1講座」最終課題用です。** 追加したコードと説明は [my/README.md](my/README.md) にあります。
+
 # Microduck RL
 
 <img width="2215" height="884" alt="image" src="https://github.com/user-attachments/assets/5db7cc83-b3ce-4f7c-83f0-0572a63baed7" />
