@@ -1,273 +1,166 @@
-> **このforkは「Physical AI応用1講座」最終課題用です。** 追加したコードと説明は [my/README.md](my/README.md) にあります。
+> このリポジトリは [pollen-robotics/microduck_rl](https://github.com/pollen-robotics/microduck_rl) のforkです。元のREADMEは [README_original.md](README_original.md) にあります。追加したコードは `my/` フォルダです。
 
-# Microduck RL
+# PAI最終課題：言葉で歩くMicroduck
 
-<img width="2215" height="884" alt="image" src="https://github.com/user-attachments/assets/5db7cc83-b3ce-4f7c-83f0-0572a63baed7" />
+日本語で「前に30cm進んで、左を向いて」と指示すると、二足歩行ロボット Microduck がシミュレーション内でその通りに歩くシステムです。
 
+- 動画：https://youtu.be/xx93gIo13ws
+- 作成者：easyMicrobit（omnicampusアカウント名）
 
-RL training environments for [Microduck](https://github.com/pollen-robotics/microduck) —
-a ~800 g, ~25 cm tall bipedal robot — built on
-[mjlab](https://github.com/mujocolab/mjlab) (MuJoCo Warp) with PPO.
-Policies are trained here at 50 Hz, exported to ONNX, and deployed on the real
-robot by the runtime in [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck).
+## 概要
 
-<!-- HERO VIDEO — real robot montage: walking, standup, roulade, roller skating.
-     Keep it short (~30 s) and real-robot-first: this is the "why should I care" shot. -->
+役割の異なる2つのAIを組み合わせています。
 
-https://github.com/user-attachments/assets/50c3d537-8db2-4005-9d9c-3472faeec4d0
-
-The repo encodes the full sim2real recipe: [BAM](https://github.com/Rhoban/bam)
-actuator physics, domain randomization, backlash simulation, and the
-reward-design lessons that made it work
-(see [AGENTS.md](AGENTS.md) for the distilled playbook).
-
-## Quickstart
-
-Requires a CUDA GPU (training runs through MuJoCo Warp) and [uv](https://docs.astral.sh/uv/).
-
-> **On ARM boxes (DGX Spark / GB10, Jetson):** `uv sync` pulls ~2 GB of CUDA
-> wheels on first run and uv's default 30 s HTTP timeout can abort mid-download.
-> Export `UV_HTTP_TIMEOUT=600` for the first sync. 
-
-```bash
-git clone https://github.com/pollen-robotics/microduck_rl
-cd microduck_rl
-
-# train the walking policy (uses your GPU; ~1-2 h for a usable gait at 4096 envs)
-uv run train Mjlab-Velocity-Flat-MicroDuck --env.scene.num-envs 4096
-
-# watch a trained policy in the viewer
-uv run play Mjlab-Velocity-Flat-MicroDuck --wandb-run-path <entity/project/run_id>
-
-# export to ONNX for deployment
-uv run scripts/export.py Mjlab-Velocity-Flat-MicroDuck --wandb-run-path <...>
-uv run publish --onnx output.onnx --repo <user>/microduck-<name> --kind episodic --duration-s 4.0   # share it (see "Publishing a policy")
-
-# drive the exported policy in CPU MuJoCo with the keyboard
-uv run scripts/infer_policy.py --walking output.onnx
-```
-
-Resume from a checkpoint:
-
-```bash
-uv run train Mjlab-Velocity-Flat-MicroDuck --env.scene.num-envs 4096 \
-    --agent.run-name resume --agent.load-checkpoint model_29999.pt --agent.resume True
-```
-
-No GPU? Add `--hf-jobs` to any train command to run it on Hugging Face Jobs
-instead of locally (see [scripts/hf/README.md](scripts/hf/README.md)).
-
-## Tasks
-
-`uv run list-envs` prints the live registry. Flat/Rough variants exist where noted.
-
-<!-- SHOWCASE GRID — one short GIF per task family (sim or real), 3 per row.
-     Priority order if you only record a few: Velocity, VelStand (fall+recover),
-     Roulade, SitStand, Rollers/Swizzle, BallKick. -->
-
-| Task id | Terrain | Description |
+| 役割 | 担当 | 内容 |
 |---|---|---|
-| `Mjlab-Velocity-{Flat,Rough}-MicroDuck` | flat/rough | **The main task**: walking with velocity commands + head-pose commands |
-| `Mjlab-VelStand-{Flat,Rough}-MicroDuck` | flat/rough | Walking + fall recovery in one policy |
-| `Mjlab-StandUp-{Flat,Rough}-MicroDuck` | flat/rough | Stand up from face-down/face-up/sitting, then hold the stand + body-pose control |
-| `Mjlab-SitStand-{Flat,Rough}-MicroDuck` | flat/rough | Commanded sit ↔ stand in one policy, gently, head commandable |
-| `Mjlab-GroundPick-{Flat,Rough}-MicroDuck` | flat/rough | Crouch and touch the ground with the mouth tip, return to stand |
-| `Mjlab-BallKick-Flat-MicroDuck` | flat | Kick a 70 mm / 15 g ball forward (actor is ball-blind) |
-| `Mjlab-Roulade-Flat-MicroDuck` | flat | Forward roll over the head, land back on the feet |
-| `Mjlab-Velocity-Flat-MicroDuck-Rollers` | flat | Roller-skate velocity tracking (passive wheels under the feet) |
-| `Mjlab-Velocity-Swizzle-MicroDuck` | flat | Classic symmetric swizzle skating |
-| `Mjlab-RollerCrouch-Flat-MicroDuck` | flat | Crouch while gliding on rollers |
-| `Mjlab-RollerSlope-Flat-MicroDuck` | slope | Glide down slopes on rollers |
-| `Mjlab-RollerStandUp-Flat-MicroDuck` | flat | Stand up from the ground onto the wheels |
-| `Mjlab-Spin-Flat-MicroDuck` | flat | Fast spin in place on rollers |
+| 頭（計画） | LLM（OpenRouter経由） | 日本語の指示を「動作の列（距離・角度）」に変換する |
+| 足（運動） | 強化学習で学習した歩行ポリシー（ONNX） | 速度指令を受け取り、14個の関節を動かして転ばずに歩く |
 
-At deployment the runtime hot-swaps these policies (walk / recover / trick)
-behind a shared 61-dimensional observation contract, so any of them can take
-over the robot at any moment. `scripts/infer_policy.py` rehearses exactly that:
+LLMには「距離と角度」で考えさせ、速度と時間への換算はプログラム側で行います。換算には、実際にシミュレーションで測った速さを使っています。
 
-```bash
-uv run scripts/infer_policy.py --walking walk.onnx --standing stand.onnx \
-    --sitstand sitstand.onnx --roulade roulade.onnx --new-cmd-obs
+## システム構成
+
+```
+日本語の指示
+  ↓ LLM（JSONで動作の列を出力）
+{"steps": [{"action": "forward", "distance_m": 0.3}, {"action": "turn_left", "angle_deg": 90}, ...]}
+  ↓ 換算＋範囲チェック（my/llm_walk.py）
+台本: (前後速度, 左右速度, 旋回速度, 秒) のリスト
+  ↓ 歩行ポリシー duck_walk.onnx（50Hzで推論）
+MuJoCo上のMicroduckが歩く → 動画に保存
 ```
 
-Keyboard-driven (velocity commands, `G` ground pick, `Y` sit/stand, `R` roulade,
-`K`/`L` kicks); `--debug`, `--save-csv`, `--record` support sim2real comparisons.
-The servos are simulated with the same BAM M6 XL330 model the policies are
-trained against (voltage control + load-dependent friction, via
-`bam.mujoco.MujocoController`); `--vin` / `--vin-drop-gain` / `--kp-fw` pin the
-training DR ranges to one value, `--no-bam` falls back to the XML PD actuators.
+## 追加したファイル
 
-### Backlash variants
+元のリポジトリ（pollen-robotics/microduck_rl）に対して、次のファイルを追加しました。それ以外はすべて元のリポジトリのコードです。
 
-Every main task has a **Backlash** twin that trains on a model with ±1° of gear
-play (2° total) in series with each of the 14 servo joints: insert `-Backlash`
-before `MicroDuck` in the task id, e.g. `Mjlab-Velocity-Flat-Backlash-MicroDuck`.
-
-The backlash is modeled properly for sim2real: each servo gets an unactuated
-`passive_<joint>_backlash` hinge, and because the real encoder sits on the
-output side of the play, both the firmware PD emulation
-(`BacklashEncoderBamActuator`) and the `joint_pos`/`joint_vel` observations
-read *through* the backlash (`qpos[servo] + qpos[backlash]`). Observation and
-action dims are unchanged, so ONNX export and the runtime need no changes.
-See `src/mjlab_microduck/tasks/backlash.py`.
-
-## Actuator model
-
-All tasks use the [BAM](https://github.com/Rhoban/bam) M6 actuator model for
-the Dynamixel XL330 (voltage control law, back-EMF, Coulomb/Stribeck/load-dependent
-friction), with per-env domain randomization on battery voltage, voltage sag
-under load, command delay, and friction magnitude
-(`FrictionDRBamActuator` in `src/mjlab_microduck/actuator/`).
-
-At this scale — tiny servos driving a ~800 g biped — actuator fidelity is most
-of the sim2real gap, which is why the actuator is modeled down to its voltage
-control law instead of an ideal PD.
-
-## Robot models
-
-MJCF models live in `src/mjlab_microduck/robot/microduck/` and are exported
-from Onshape with [onshape-to-robot](https://github.com/Rhoban/onshape-to-robot),
-one `config_mjcf_*.json` per model:
-
-| XML | Used by |
+| ファイル | 内容 |
 |---|---|
-| `robot_walk.xml` | Velocity (stripped trunk/head contacts — falling is cheap) |
-| `robot_groundcontact.xml` | VelStand, StandUp, SitStand, GroundPick, BallKick, Roulade (curated collision set for the parts that touch the floor — body can physically lie on the ground; formerly `robot_allcollisions.xml`) |
-| `robot_groundcontact_rollers.xml` | Roller tasks (passive wheels) |
-| `robot_allcollisions.xml` | True full-collision model — every part has a collision geom. No task uses it yet |
-| `robot_*_backlash.xml` | Backlash task variants (generated by `add_backlash.py`) |
+| `my/walk_script.py` | 手書きの台本どおりに歩かせ、動画を保存する（動作確認・速度の実測用） |
+| `my/llm_walk.py` | 日本語の指示 → LLM → 台本 → 歩行 → 動画、を一括で行う本体 |
+| `my/llm_walk_fb.py` | 向きのフィードバック補正を追加。同じ計画を補正なしでも実行して比較できる |
+| `my/make_video.py` | 提出用動画を一括生成（字幕、計画経路と実際の軌跡の描画、左右比較） |
+| `duck_walk.onnx` | 自分で学習した歩行ポリシー |
 
-`scene*.xml` files wrap the robots with a floor + keyframes (STAND/SIT/FOLD)
-for quick viewing and for `infer_policy.py`.
+シミュレーションの部分は、元のリポジトリの `scripts/infer_policy.py` の部品（モーターモデルの読み込み、観測の作成、推論）を借りて使っています。
 
-<!-- IMAGE — side-by-side render: walk model vs rollers model (or a collision-geom
-     visualization). One image here makes the model-variant story instant. -->
+## 歩行ポリシーの学習
 
-## Project structure
+| 項目 | 内容 |
+|---|---|
+| タスク | `Mjlab-Velocity-Flat-MicroDuck`（平地で速度指令に従って歩く） |
+| アルゴリズム | PPO（rsl_rl）、mjlab（MuJoCo Warp） |
+| 並列環境数 | 4096 |
+| 学習回数 | 14,750 iteration（約8時間、RTX 5060 Ti） |
+| 入力 / 出力 | 観測61次元 / 関節目標角14次元、制御50Hz |
 
-```
-src/mjlab_microduck/
-├── robot/
-│   ├── microduck/                    # MJCF exports, export configs, scenes, add_backlash.py
-│   └── microduck_constants.py        # robot cfgs, HOME frame, BAM actuator cfg
-├── actuator/friction_dr_bam.py       # BAM + friction DR + backlash encoder feedback
-├── tasks/
-│   ├── __init__.py                   # task registration (base + backlash variants)
-│   ├── mdp.py                        # rewards, events, observations, custom classes
-│   ├── backlash.py                   # make_backlash_variant() env-cfg wrapper
-│   └── microduck_*_env_cfg.py        # one cfg module per task family
-├── train_cli.py                      # `train` script (identical to mjlab's)
-├── train_hook.py                     # intercepts `train ... --hf-jobs`
-└── hf_jobs.py                        # Hugging Face Jobs submission
-```
+学習の初期は1回の評価あたり約25体が転倒していましたが、学習後は約0.4体まで減り、ほぼ転ばずに歩き続けられるようになりました。
 
-Conventions worth knowing:
+## 実験結果
 
-- The observation layout is shared across every policy (61-dim actor obs:
-  48 proprioception + commands `[twist(3), head_pose(4), body_pose(6)]`), which
-  is what makes runtime policy hot-swapping possible. Envs that don't use a
-  command slot zero-pad it rather than dropping it.
-- Unactuated joints are all named `passive_*` (roller wheels, backlash
-  hinges); actuators, joint observations and pose rewards select servo joints
-  with `^(?!passive_).*`.
-- Domain-randomization toggles are `ENABLE_*` booleans at the top of each
-  env cfg file.
-- Joint layout (14 servos): 0–4 left leg (hip_yaw, hip_roll, hip_pitch, knee,
-  ankle), 5–8 neck/head (neck_pitch, head_pitch, head_yaw, head_roll),
-  9–13 right leg.
-- The exporter bakes the observation normalizer into the ONNX graph — always
-  deploy ONNX produced by `scripts/export.py`, never a hand-converted
-  checkpoint, or the policy sees unnormalized observations at runtime.
+### 1. 台本どおりに歩かせた結果（my/walk_script.py）
 
-[AGENTS.md](AGENTS.md) documents the env-building workflow and the reward-design
-rules learned across the project (also aimed at AI coding agents working in
-this repo).
+| 区間 | 指令 | 実際の位置 | 解釈 |
+|---|---|---|---|
+| 立つ 2秒 | 0 | x=0.00 m | その場で足踏み |
+| 前進 4秒 | 0.2 m/s | x=0.33 m | 約0.08 m/s で前進 |
+| 左回転 3秒 | 1.0 rad/s | x=0.34 m | その場で約180度回転 |
+| 前進 3秒 | 0.2 m/s | x=0.10 m | 逆向きになったため0.24 m戻った |
+| 止まる 2秒 | 0 | x=0.10 m | その場で足踏み |
 
-## Publishing a policy
+方向と回転は指令どおりでしたが、**前進の速さは指令の約4割（0.2 m/s → 実測 約0.08 m/s）**でした。そこで、LLMの計画を台本に換算するときは、この実測値を使っています。
 
-`uv run publish` puts a policy on the Hugging Face Hub in the shape the robot's
-daemon loads: one `policy.onnx` with the observation normalizer baked in, a
-`manifest.json` following schema 2 of the
-[microduck policy manifest](https://github.com/pollen-robotics/microduck/blob/main/docs/policy-manifest.md),
-and a README saying how to run it. Anyone with a microduck can then install it
-with one command, no daemon release needed.
+### 2. 言葉で指示した結果（my/llm_walk.py）
 
-```bash
-# From a wandb run — exports through the one safe path, then uploads
-uv run publish --task Mjlab-PoliteBow-Flat-MicroDuck \
-    --wandb-run-path <entity/project/run_id> --checkpoint 3000 \
-    --repo <user>/microduck-polite-bow --kind episodic --duration-s 4.0 \
-    --description "Bows from a two-foot stand and comes back up."
+指示：「前に30cm進んで、左を向いて、また20cm進んで」
 
-# From an ONNX you already exported (validated, not re-exported)
-uv run publish --onnx output.onnx --repo <user>/microduck-flamingo \
-    --kind perpetual --unwind-s 1.5 --twist-help "[flag, side, 0]"
+| 区間 | 目標 | 実際 |
+|---|---|---|
+| 前進30cm | x=0.30 m | x=0.32 m |
+| 左を向く | 向き+90度 | +100度（回転量+81度） |
+| 前進20cm | 左へ0.20 m | 斜めに約0.2 m |
+| ゴール | (0.30, 0.20) | (0.23, 0.24) |
 
-# A new gait for a slot
-uv run publish --onnx output.onnx --repo <user>/microduck-my-walk --kind perpetual --slot walk
+LLMは指示を正しく動作の列に変換し、実測値による換算で距離もほぼ正確になりました。ゴールのずれ（約8cm）の主な原因は、前進中に向きが左へ約20度ずつずれていくことです。
 
-# Ship a rollout video too: uploaded as replay.mp4, which the Hub's replay widget plays
-uv run scripts/render_policy.py output.onnx --seconds 10 --video media/bow.mp4
-uv run publish --onnx output.onnx --repo <user>/microduck-bow --kind episodic --duration-s 4.0 \
-    --video media/bow.mp4
+### 3. 向きのフィードバック補正（my/llm_walk_fb.py、my/make_video.py）
 
-# A remix (warm-started / fine-tuned from someone's published policy): name the parent so the
-# model card sets `base_model` and the Hub links the two
-uv run publish --onnx output.onnx --repo <user>/microduck-deep-bow --kind episodic --duration-s 5.0 \
-    --base-model <owner>/microduck-polite-bow
+歩きながら向きのずれを測って戻す補正と、目標の角度に達するまで回る回転を追加した。
 
-# See what would be uploaded without touching the Hub
-uv run publish --onnx output.onnx --repo <user>/microduck-bow --kind episodic --duration-s 4.0 --dry-run
-```
+| 指示（LLMの計画） | ゴール誤差 | 向きの誤差 |
+|---|---|---|
+| 前に30cm進んで、左を向いて、また20cm進んで | 1.2 cm | +9° |
+| 右に90度回ってから、前に40cm進んで、左に45度向いて | 2.9 cm | +1° |
+| 前に20cm進んで、くるっと一回転して、10cm後ろに下がって | 2.7 cm | −12° |
 
-Then on a robot:
+同じ計画（指示1）での比較：**補正なし 7.3 cm → 補正あり 1.2 cm**（約6分の1）。
+
+## 工夫した点
+
+- **LLMと歩行AIの役割分担**：LLMには距離と角度だけを考えさせ、物理的な速度・時間への換算はプログラムで行う構成にした。
+- **実測にもとづく換算**：指令速度と実際の速さのずれを測定し、その値を換算に使うことで、移動距離の誤差を小さくした。
+- **安全のための範囲チェック**：LLMの出力が想定外でも、距離・角度・時間を安全な範囲に収め、知らない動作は無視するようにした。
+
+## 今後の課題
+
+- 前進中の向きのずれを、姿勢の情報を使ったフィードバック制御で補正する。
+- 実機のMicroduckで同じしくみを動かす（sim-to-real）。
+
+## 実行方法
 
 ```bash
-sudo robotctl policy add polite-bow <user>/microduck-polite-bow   # episodic: length comes from the manifest
-sudo robotctl policy add flamingo <user>/microduck-flamingo --hold 5   # held pose: you pick how long
-sudo robotctl policy load walk <user>/microduck-my-walk                # gait: into the walk slot
-robotctl robot do polite-bow
+# 環境構築（CUDA対応GPUと uv が必要）
+git clone https://github.com/tmhr-doi-pai/microduck_rl
+cd microduck_rl
+uv sync
+
+# 学習済みの duck_walk.onnx を使って、台本どおりに歩かせる
+uv run python my/walk_script.py
+
+# 日本語の指示で歩かせる（OpenRouterのAPIキーが必要）
+export OPENROUTER_API_KEY="（自分のキー）"
+uv run python my/llm_walk.py "前に30cm進んで、左を向いて、また20cm進んで"
 ```
 
-What `--kind` means, and what each needs:
-
-- **episodic** — runs for `--duration-s` and returns itself to a standing pose
-  (kicks, roulade, a bow). Add `--chain` if holding the button should repeat it.
-- **perpetual** — runs until told otherwise. Two shapes:
-  - a **gait** (a new walk or stand): add `--slot walk` (or `stand`) and
-    nothing else; the owner installs it with `robotctl policy load walk <repo>`.
-  - a **held pose** (the flamingo): give `--unwind-s`, how long the daemon
-    drives the idle twist (`--idle`, zeros by default) before handing back to
-    the gait, so the robot is not let go of on one foot. The owner runs it as a
-    one-shot with `policy add ... --hold <seconds>`.
-
-Before anything is uploaded, `publish` checks the graph is `[1,61] -> [1,14]`
-(a 51-D legacy policy is refused with a message), runs it on plausible inputs
-and refuses NaNs or a constant output, fills the `training` block from git and
-wandb (task, commit, branch, dirty flag, run, checkpoint), and refuses to
-overwrite an existing `.onnx` in the repo without `--force`. Repos are created
-private; `--no-private` for public, `--tag v1` to tag the revision.
-
-Only constant-command policies are publishable this way. Phase-driven moves
-(the ground pick) and the posture-flag sit↔stand are driven by the daemon
-itself and live in the official set, `pollen-robotics/microduck-policies`.
-
-## Tests
+歩行ポリシーを自分で学習し直す場合：
 
 ```bash
-uv run --with pytest pytest tests/
+uv run train Mjlab-Velocity-Flat-MicroDuck --env.scene.num-envs 4096 --agent.logger tensorboard
+uv run scripts/export.py Mjlab-Velocity-Flat-MicroDuck \
+  --checkpoint-file logs/rsl_rl/velocity/（日時）_velocity/model_（番号）.pt \
+  --onnx-file duck_walk.onnx
 ```
 
-CPU-only config-invariant and reward-function regression tests — they lock in
-joint-index mappings, reward sign conventions, and NaN guards.
+## 進捗ログ（新しいものが上）
 
-## Related projects
+### 2026-11-01（日）
+- 提出用動画を一括生成する `my/make_video.py` を作成（92.8秒）。指示3つのゴール誤差は1.2〜2.9cm。
+- 向きのフィードバック補正の効果を確認：同じ計画でゴール誤差 7.3cm（補正なし）→ 1.2cm（補正あり）。
+- レポートPDFを作成し、YouTubeに動画を公開。
 
-- [microduck](https://github.com/pollen-robotics/microduck) — the Microduck project home, including the onboard runtime that runs the exported policies
-- [mjlab](https://github.com/mujocolab/mjlab) — the training framework (MuJoCo Warp + rsl_rl)
-- [BAM](https://github.com/Rhoban/bam) — better actuator models, by Rhoban
+### 2026-10-21（水）
+- 作業用PCのWi-Fiが復旧。omnicampusのアカウント名を easyMicrobit に変更。
 
-## License
+### 2026-10-10（土）
+- 作業用PCがネットワークから切断（10/9 19:45以降、応答なし）。Tailscaleの管理画面で学内IPアドレスを調べ、学内からも接続を試みたが応答なし。現地での確認待ち。コードはGitHubに保存済みのため、作業データは失われていない。
+- 提出要件と照らし合わせ、内容は合格ラインに到達していることを確認。残りは1〜3分の動画とレポートPDF。
+- 発展の方針を A（向きのフィードバック制御）→ C（LLMによる技の使い分け）→ D（カメラ画像と画像対応LLM）に決定。各段階で、提出できる版をGitHubに保存していく方針とした。
+- Aのプログラム `my/llm_walk_fb.py` を作成。位置と向きを見ながら前進・回転し、補正なしと同じ計画で比較できるモードも用意。動作確認はPC復旧後に行う。
 
-This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.
-3D model files are licensed under Creative Commons BY-SA-NC.
+### 2026-10-09（金）
+- GitHubに課題用アカウントを作成し、公式リポジトリをforkして公開。README（本ファイル）を作成。
+- 日本語の指示 → LLM → 台本 → 歩行、を一括で行う `my/llm_walk.py` が動作。ゴール誤差は約8cmで、前進中に向きが左へずれることを発見。
+- 台本どおりに歩かせる `my/walk_script.py` を作成し、速さを実測（指令0.2 m/s → 実測 約0.08 m/s）。
+- 約8時間（14,750 iteration）で学習を終了し、歩行ポリシー `duck_walk.onnx` を書き出し。転倒は1回あたり約25体 → 約0.4体に減少。
+
+### 2026-10-08（木）
+- テーマを「言葉で歩くMicroduck」（LLM＋強化学習の歩行ポリシー）に決定。
+- 共用PCの環境を壊さないよう、作業専用のユーザーを作成して環境を構築（uv）。
+- 短い試運転でGPU学習の動作を確認し、深夜に本番の学習（4096並列環境）を開始。
+
+## 謝辞・ライセンス
+
+- 元のリポジトリ：[pollen-robotics/microduck_rl](https://github.com/pollen-robotics/microduck_rl)（Apache License 2.0）
+- 学習フレームワーク：[mjlab](https://github.com/mujocolab/mjlab)、モーターモデル：[BAM](https://github.com/Rhoban/bam)
+- 開発の一部でAIアシスタント（Claude）を補助的に利用しました。
+- このforkも Apache License 2.0 に従います。
