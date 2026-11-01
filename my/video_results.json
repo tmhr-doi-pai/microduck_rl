@@ -1,0 +1,85 @@
+{
+  "demos": [
+    {
+      "ideal": [
+        0.3,
+        0.2,
+        90.0
+      ],
+      "actual": [
+        0.297,
+        0.212,
+        99.3
+      ],
+      "pos_err_cm": 1.2,
+      "yaw_err_deg": 9.3,
+      "height_mm": 117.0,
+      "instruction": "前に30cm進んで、左を向いて、また20cm進んで"
+    },
+    {
+      "ideal": [
+        0.0,
+        -0.4,
+        -45.0
+      ],
+      "actual": [
+        0.028,
+        -0.392,
+        -43.7
+      ],
+      "pos_err_cm": 2.9,
+      "yaw_err_deg": 1.3,
+      "height_mm": 118.0,
+      "instruction": "右に90度回ってから、前に40cm進んで、左に45度向いて"
+    },
+    {
+      "ideal": [
+        0.1,
+        0.0,
+        0.0
+      ],
+      "actual": [
+        0.102,
+        0.027,
+        -12.5
+      ],
+      "pos_err_cm": 2.7,
+      "yaw_err_deg": -12.5,
+      "height_mm": 118.0,
+      "instruction": "前に20cm進んで、くるっと一回転して、10cm後ろに下がって"
+    }
+  ],
+  "comparison": {
+    "no_feedback": {
+      "ideal": [
+        0.3,
+        0.2,
+        90.0
+      ],
+      "actual": [
+        0.233,
+        0.229,
+        120.2
+      ],
+      "pos_err_cm": 7.3,
+      "yaw_err_deg": 30.2,
+      "height_mm": 117.0
+    },
+    "feedback": {
+      "ideal": [
+        0.3,
+        0.2,
+        90.0
+      ],
+      "actual": [
+        0.297,
+        0.212,
+        99.3
+      ],
+      "pos_err_cm": 1.2,
+      "yaw_err_deg": 9.3,
+      "height_mm": 117.0
+    },
+    "instruction": "前に30cm進んで、左を向いて、また20cm進んで"
+  }
+}

@@ -1,0 +1,56 @@
+[
+  {
+    "steps": [
+      {
+        "action": "forward",
+        "distance_m": 0.3
+      },
+      {
+        "action": "turn_left",
+        "angle_deg": 90
+      },
+      {
+        "action": "forward",
+        "distance_m": 0.2
+      }
+    ],
+    "comment": "頑張って進むよ！",
+    "instruction": "前に30cm進んで、左を向いて、また20cm進んで"
+  },
+  {
+    "steps": [
+      {
+        "action": "turn_right",
+        "angle_deg": 90
+      },
+      {
+        "action": "forward",
+        "distance_m": 0.4
+      },
+      {
+        "action": "turn_left",
+        "angle_deg": 45
+      }
+    ],
+    "comment": "進む準備完了！",
+    "instruction": "右に90度回ってから、前に40cm進んで、左に45度向いて"
+  },
+  {
+    "steps": [
+      {
+        "action": "forward",
+        "distance_m": 0.2
+      },
+      {
+        "action": "turn_left",
+        "angle_deg": 360
+      },
+      {
+        "action": "backward",
+        "distance_m": 0.1
+      }
+    ],
+    "comment": "頑張って進みます！",
+    "instruction": "前に20cm進んで、くるっと一回転して、10cm後ろに下がって"
+  }
+]
