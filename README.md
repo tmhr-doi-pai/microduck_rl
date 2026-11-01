@@ -146,6 +146,7 @@ uv run scripts/export.py Mjlab-Velocity-Flat-MicroDuck \
 ## 進捗ログ（新しいものが上）
 
 ### 2026-11-01（日）
+- omnicampusで最終課題を提出（通常提出・優秀生選出用）。
 - 提出用動画を一括生成する `my/make_video.py` を作成（92.8秒）。指示3つのゴール誤差は1.2〜2.9cm。
 - 向きのフィードバック補正の効果を確認：同じ計画でゴール誤差 7.3cm（補正なし）→ 1.2cm（補正あり）。
 - レポートPDFを作成し、YouTubeに動画を公開。
